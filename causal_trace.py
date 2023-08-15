@@ -31,7 +31,8 @@ print(prompt)
 tokens = tokenizer.encode(prompt, return_tensors='pt')
 
 # clean run
-clean_logits, clean_run_cache = model.run_with_cache(tokens)
+with torch.no_grad():
+    clean_logits, clean_run_cache = model.run_with_cache(tokens)
 print(clean_logits.shape)
 
 # corrupted run
@@ -42,4 +43,17 @@ noise_scale = 3 * get_embedding_variance(model)
 def add_noise(value, hook):
     noise = torch.randn_like(value)
     return value + noise * noise_scale
+
+hooks = [(f'hook_embed', add_noise)]
+
+with model.hooks(fwd_hooks=hooks), torch.no_grad():
+    corrupted_logits, corrupted_run_cache = model.run_with_cache(tokens)
+
+print(corrupted_logits.shape)
+
+# p(correct) for clean and corrupted runs
+correct_token = tokenizer.encode(fact['o'])[0]
+
+print(torch.softmax(clean_logits[0, -1], dim=-1)[correct_token])
+print(torch.softmax(corrupted_logits[0, -1], dim=-1)[correct_token])
 
