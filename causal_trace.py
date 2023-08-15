@@ -59,18 +59,19 @@ print(corrupted_logits.shape)
 correct_token = tokenizer.encode(fact['o'])[0]
 
 
-layer_to_patch = 0
-position_to_patch = 0
+layer_to_patch = 11
+position_to_patch = 6
+patch_place = f'blocks.{layer_to_patch}.hook_resid_post'
 
 def patch_h_hook(value, hook):
     # value shape is (batch_size, seq_len, hidden_size)
-    print('in patch_h_hook')
-    print(value.shape)
+    # replace value with cached value at position_to_patch
+    value[:, position_to_patch] = clean_run_cache[patch_place][:, position_to_patch]
     return value
 
 patch_hooks = [
     (f'hook_embed', add_noise),
-    (f'blocks.{layer_to_patch}.hook_resid_post', patch_h_hook),
+    (patch_place, patch_h_hook),
 ]
 
 with model.hooks(fwd_hooks=patch_hooks), torch.no_grad():
@@ -85,10 +86,6 @@ print(corrupted_logits.shape)
 
 # p(correct) for clean and corrupted runs
 correct_token = tokenizer.encode(fact['o'])[0]
-
-print(torch.softmax(clean_logits[0, -1], dim=-1)[correct_token])
-print(torch.softmax(corrupted_logits[0, -1], dim=-1)[correct_token])
-
 
 print(torch.softmax(clean_logits[0, -1], dim=-1)[correct_token])
 print(torch.softmax(corrupted_logits[0, -1], dim=-1)[correct_token])
