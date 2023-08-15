@@ -47,6 +47,7 @@ noise = noise * noise_scale
 def add_noise(value, hook):
     return value + noise
 
+
 noise_hooks = [(f'hook_embed', add_noise)]
 
 with model.hooks(fwd_hooks=noise_hooks), torch.no_grad():
