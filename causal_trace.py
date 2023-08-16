@@ -9,7 +9,8 @@ from transformer_lens import HookedTransformer
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = HookedTransformer.from_pretrained('gpt2-small', device=device)
+# model = HookedTransformer.from_pretrained('gpt2-small', device=device)
+model = HookedTransformer.from_pretrained('gpt2-xl', device=device)
 model.eval()
 
 tokenizer = model.tokenizer
@@ -90,7 +91,7 @@ corrupted_prob = torch.softmax(corrupted_logits[0, -1], dim=-1)[target_token]
 diff_matrix = np.zeros((n_positions, n_layers))
 for res in results:
     layer_to_patch, position_to_patch, patched_prob = res
-    diff = patched_prob - original_prob
+    diff = original_prob - patched_prob
     diff_matrix[position_to_patch, layer_to_patch] = diff
 
 # Plotting the matrix
@@ -98,6 +99,6 @@ plt.imshow(diff_matrix, aspect='auto', cmap='viridis')
 plt.colorbar(label='Difference')
 plt.xlabel('Layer')
 plt.ylabel('Position')
-plt.title('Difference between Patched and Original Probability')
+plt.title('Original - Patched')
 plt.savefig('difference_plot.png', dpi=300, bbox_inches='tight')
 
