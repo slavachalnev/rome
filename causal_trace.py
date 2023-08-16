@@ -7,39 +7,6 @@ import time
 import torch
 from transformer_lens import HookedTransformer
 
-# We have data samples of the form
-# (s, r, o) where s is subject, r is relation, and o is object.
-
-
-def analyze_patch(model, tokens, fact, noise, layer_to_patch, position_to_patch):
-    def add_noise(value, hook):
-        return value + noise
-
-    noise_hooks = [(f'hook_embed', add_noise)]
-
-    with model.hooks(fwd_hooks=noise_hooks), torch.no_grad():
-        corrupted_logits, corrupted_run_cache = model.run_with_cache(tokens)
-
-    patch_place = f'blocks.{layer_to_patch}.hook_resid_post'
-
-    def patch_h_hook(value, hook):
-        value[:, position_to_patch] = clean_run_cache[patch_place][:, position_to_patch]
-        return value
-
-    patch_hooks = [
-        (f'hook_embed', add_noise),
-        (patch_place, patch_h_hook),
-    ]
-
-    with model.hooks(fwd_hooks=patch_hooks), torch.no_grad():
-        patched_logits, patched_run_cache = model.run_with_cache(tokens)
-
-    correct_token = tokenizer.encode(fact['o'])[0]
-
-    return (torch.softmax(clean_logits[0, -1], dim=-1)[correct_token],
-            torch.softmax(corrupted_logits[0, -1], dim=-1)[correct_token],
-            torch.softmax(patched_logits[0, -1], dim=-1)[correct_token])
-
 
 model = HookedTransformer.from_pretrained('gpt2-small', device='cpu')
 model.eval()
@@ -64,13 +31,12 @@ prompt = fact['s'] + fact['r']
 print(prompt)
 
 tokens = tokenizer.encode(prompt, return_tensors='pt')
+target_token = tokenizer.encode(fact['o'])[0]
 
-# clean run
 with torch.no_grad():
     clean_logits, clean_run_cache = model.run_with_cache(tokens)
 
 ### corrupted run
-
 noise_scale = 3 * get_embedding_variance(model)
 
 s_token_len = len(tokenizer.encode(fact['s']))
@@ -78,7 +44,28 @@ noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subjec
 noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1) # pad for relation
 noise = noise * noise_scale
 
+def add_noise(value, hook):
+    return value + noise
 
+noise_hooks = [(f'hook_embed', add_noise)]
+with model.hooks(fwd_hooks=noise_hooks), torch.no_grad():
+    # corrupted_logits, corrupted_run_cache = model.run_with_cache(tokens)
+    corrupted_logits = model(tokens, return_type='logits')
+
+def analyze_patch(model, tokens, fact, layer_to_patch, position_to_patch):
+    patch_place = f'blocks.{layer_to_patch}.hook_resid_post'
+
+    def patch_h_hook(value, hook):
+        value[:, position_to_patch] = clean_run_cache[patch_place][:, position_to_patch]
+        return value
+
+    patch_hooks = [(f'hook_embed', add_noise), (patch_place, patch_h_hook)]
+
+    with model.hooks(fwd_hooks=patch_hooks), torch.no_grad():
+        # patched_logits, patched_run_cache = model.run_with_cache(tokens)
+        patched_logits = model(tokens, return_type='logits')
+
+    return torch.softmax(patched_logits[0, -1], dim=-1)[target_token]
 
 
 n_layers = model.cfg.n_layers
@@ -90,22 +77,17 @@ t0 = time.time()
 # Iterate through every layer and position
 for layer_to_patch in range(n_layers):
     for position_to_patch in range(n_positions):
-        result = analyze_patch(model, tokens, fact, noise, layer_to_patch, position_to_patch)
+        result = analyze_patch(model, tokens, fact, layer_to_patch, position_to_patch)
         results.append((layer_to_patch, position_to_patch, result))
 
 print(f'Finished in {time.time() - t0:.2f} seconds')
 
-# for res in results:
-#     print(res)
+original_prob = torch.softmax(clean_logits[0, -1], dim=-1)[target_token]
+corrupted_prob = torch.softmax(corrupted_logits[0, -1], dim=-1)[target_token]
 
-
-# Initializing the matrix for the difference between patched and original probability
 diff_matrix = np.zeros((n_positions, n_layers))
-
-# Populating the matrix with the required values
 for res in results:
-    layer_to_patch, position_to_patch, probabilities = res
-    original_prob, _, patched_prob = probabilities
+    layer_to_patch, position_to_patch, patched_prob = res
     diff = patched_prob - original_prob
     diff_matrix[position_to_patch, layer_to_patch] = diff
 
