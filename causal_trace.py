@@ -8,7 +8,8 @@ import torch
 from transformer_lens import HookedTransformer
 
 
-model = HookedTransformer.from_pretrained('gpt2-small', device='cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = HookedTransformer.from_pretrained('gpt2-small', device=device)
 model.eval()
 
 tokenizer = model.tokenizer
@@ -30,7 +31,7 @@ fact = {
 prompt = fact['s'] + fact['r']
 print(prompt)
 
-tokens = tokenizer.encode(prompt, return_tensors='pt')
+tokens = tokenizer.encode(prompt, return_tensors='pt').to(device)
 target_token = tokenizer.encode(fact['o'])[0]
 
 with torch.no_grad():
@@ -42,6 +43,7 @@ noise_scale = 3 * get_embedding_variance(model)
 s_token_len = len(tokenizer.encode(fact['s']))
 noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subject
 noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1) # pad for relation
+noise = noise.to(device)
 noise = noise * noise_scale
 
 def add_noise(value, hook):
@@ -52,7 +54,7 @@ with model.hooks(fwd_hooks=noise_hooks), torch.no_grad():
     # corrupted_logits, corrupted_run_cache = model.run_with_cache(tokens)
     corrupted_logits = model(tokens, return_type='logits')
 
-def analyze_patch(model, tokens, fact, layer_to_patch, position_to_patch):
+def analyze_patch(model, tokens, layer_to_patch, position_to_patch):
     patch_place = f'blocks.{layer_to_patch}.hook_resid_post'
 
     def patch_h_hook(value, hook):
@@ -77,7 +79,7 @@ t0 = time.time()
 # Iterate through every layer and position
 for layer_to_patch in range(n_layers):
     for position_to_patch in range(n_positions):
-        result = analyze_patch(model, tokens, fact, layer_to_patch, position_to_patch)
+        result = analyze_patch(model, tokens, layer_to_patch, position_to_patch).to('cpu')
         results.append((layer_to_patch, position_to_patch, result))
 
 print(f'Finished in {time.time() - t0:.2f} seconds')
