@@ -1,4 +1,8 @@
 # Locating factual associations in GPT using causal tracing.
+
+from matplotlib import pyplot as plt
+import numpy as np
+
 import time
 import torch
 from transformer_lens import HookedTransformer
@@ -77,18 +81,39 @@ noise = noise * noise_scale
 
 
 
-# Storing the results
+n_layers = model.cfg.n_layers
+n_positions = tokens.shape[-1]
+
 results = []
 t0 = time.time()
 
 # Iterate through every layer and position
-for layer_to_patch in range(model.cfg.n_layers):
-    for position_to_patch in range(tokens.shape[-1]):
+for layer_to_patch in range(n_layers):
+    for position_to_patch in range(n_positions):
         result = analyze_patch(model, tokens, fact, noise, layer_to_patch, position_to_patch)
         results.append((layer_to_patch, position_to_patch, result))
 
 print(f'Finished in {time.time() - t0:.2f} seconds')
 
-# Print or further analyze the results
+# for res in results:
+#     print(res)
+
+
+# Initializing the matrix for the difference between patched and original probability
+diff_matrix = np.zeros((n_positions, n_layers))
+
+# Populating the matrix with the required values
 for res in results:
-    print(res)
+    layer_to_patch, position_to_patch, probabilities = res
+    original_prob, _, patched_prob = probabilities
+    diff = patched_prob - original_prob
+    diff_matrix[position_to_patch, layer_to_patch] = diff
+
+# Plotting the matrix
+plt.imshow(diff_matrix, aspect='auto', cmap='viridis')
+plt.colorbar(label='Difference')
+plt.xlabel('Layer')
+plt.ylabel('Position')
+plt.title('Difference between Patched and Original Probability')
+plt.savefig('difference_plot.png', dpi=300, bbox_inches='tight')
+
