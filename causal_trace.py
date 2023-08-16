@@ -38,64 +38,83 @@ target_token = tokenizer.encode(fact['o'])[0]
 with torch.no_grad():
     clean_logits, clean_run_cache = model.run_with_cache(tokens)
 
-### corrupted run
-noise_scale = 3 * get_embedding_variance(model)
 
-s_token_len = len(tokenizer.encode(fact['s']))
-noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subject
-noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1) # pad for relation
-noise = noise.to(device)
-noise = noise * noise_scale
+def corrupt_and_patch():
+    noise_scale = 3 * get_embedding_variance(model)
 
-def add_noise(value, hook):
-    return value + noise
+    s_token_len = len(tokenizer.encode(fact['s']))
+    noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subject
+    noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1) # pad for relation
+    noise = noise.to(device)
+    noise = noise * noise_scale
 
-noise_hooks = [(f'hook_embed', add_noise)]
-with model.hooks(fwd_hooks=noise_hooks), torch.no_grad():
-    # corrupted_logits, corrupted_run_cache = model.run_with_cache(tokens)
-    corrupted_logits = model(tokens, return_type='logits')
+    def add_noise(value, hook):
+        return value + noise
 
-def analyze_patch(model, tokens, layer_to_patch, position_to_patch):
-    patch_place = f'blocks.{layer_to_patch}.hook_resid_post'
+    noise_hooks = [(f'hook_embed', add_noise)]
+    with model.hooks(fwd_hooks=noise_hooks), torch.no_grad():
+        # corrupted_logits, corrupted_run_cache = model.run_with_cache(tokens)
+        corrupted_logits = model(tokens, return_type='logits')
 
-    def patch_h_hook(value, hook):
-        value[:, position_to_patch] = clean_run_cache[patch_place][:, position_to_patch]
-        return value
+    def analyze_patch(model, tokens, layer_to_patch, position_to_patch):
+        patch_place = f'blocks.{layer_to_patch}.hook_resid_post'
 
-    patch_hooks = [(f'hook_embed', add_noise), (patch_place, patch_h_hook)]
+        def patch_h_hook(value, hook):
+            value[:, position_to_patch] = clean_run_cache[patch_place][:, position_to_patch]
+            return value
 
-    with model.hooks(fwd_hooks=patch_hooks), torch.no_grad():
-        # patched_logits, patched_run_cache = model.run_with_cache(tokens)
-        patched_logits = model(tokens, return_type='logits')
+        patch_hooks = [(f'hook_embed', add_noise), (patch_place, patch_h_hook)]
 
-    return torch.softmax(patched_logits[0, -1], dim=-1)[target_token]
+        with model.hooks(fwd_hooks=patch_hooks), torch.no_grad():
+            # patched_logits, patched_run_cache = model.run_with_cache(tokens)
+            patched_logits = model(tokens, return_type='logits')
+
+        return torch.softmax(patched_logits[0, -1], dim=-1)[target_token]
 
 
-n_layers = model.cfg.n_layers
-n_positions = tokens.shape[-1]
+    n_layers = model.cfg.n_layers
+    n_positions = tokens.shape[-1]
 
-results = []
-t0 = time.time()
+    results = []
+    t0 = time.time()
 
-# Iterate through every layer and position
-for layer_to_patch in range(n_layers):
-    for position_to_patch in range(n_positions):
-        result = analyze_patch(model, tokens, layer_to_patch, position_to_patch).to('cpu')
-        results.append((layer_to_patch, position_to_patch, result))
+    # Iterate through every layer and position
+    for layer_to_patch in range(n_layers):
+        for position_to_patch in range(n_positions):
+            result = analyze_patch(model, tokens, layer_to_patch, position_to_patch).to('cpu')
+            results.append((layer_to_patch, position_to_patch, result))
 
-print(f'Finished in {time.time() - t0:.2f} seconds')
+    print(f'Finished in {time.time() - t0:.2f} seconds')
 
-original_prob = torch.softmax(clean_logits[0, -1], dim=-1)[target_token]
-corrupted_prob = torch.softmax(corrupted_logits[0, -1], dim=-1)[target_token]
+    original_prob = torch.softmax(clean_logits[0, -1], dim=-1)[target_token].to('cpu')
+    corrupted_prob = torch.softmax(corrupted_logits[0, -1], dim=-1)[target_token].to('cpu')
 
-diff_matrix = np.zeros((n_positions, n_layers))
-for res in results:
-    layer_to_patch, position_to_patch, patched_prob = res
-    diff = original_prob - patched_prob
-    diff_matrix[position_to_patch, layer_to_patch] = diff
+    diff_matrix = np.zeros((n_positions, n_layers))
+    for res in results:
+        layer_to_patch, position_to_patch, patched_prob = res
+        diff = np.abs(original_prob - patched_prob)
+        diff_matrix[position_to_patch, layer_to_patch] = diff
+    
+    return diff_matrix, original_prob, corrupted_prob
+
+
+# run 10 times and average
+diff_matrices = []
+original_probs = []
+corrupted_probs = []
+for i in range(10):
+    diff_matrix, original_prob, corrupted_prob = corrupt_and_patch()
+    diff_matrices.append(diff_matrix)
+    original_probs.append(original_prob)
+    corrupted_probs.append(corrupted_prob)
+
+diff_matrix = np.mean(diff_matrices, axis=0)
+original_prob = np.mean(original_probs)
+corrupted_prob = np.mean(corrupted_probs)
+
 
 # Plotting the matrix
-plt.imshow(diff_matrix, aspect='auto', cmap='viridis')
+plt.imshow(diff_matrix, aspect='auto', cmap='viridis', vmin=0, vmax=original_prob - corrupted_prob)
 plt.colorbar(label='Difference')
 plt.xlabel('Layer')
 plt.ylabel('Position')
