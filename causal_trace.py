@@ -1,8 +1,8 @@
+# %%
 # Locating factual associations in GPT using causal tracing.
 
 from matplotlib import pyplot as plt
 import numpy as np
-import imageio
 
 import time
 import torch
@@ -58,19 +58,29 @@ def corrupt_and_patch():
         corrupted_logits = model(tokens, return_type='logits')
 
     def analyze_patch(model, tokens, layer_to_patch, position_to_patch):
-        patch_place = f'blocks.{layer_to_patch}.hook_resid_post'
+        h_patch_place = f'blocks.{layer_to_patch}.hook_resid_post'
+        att_patch_place = f'blocks.{layer_to_patch}.hook_attn_out'
 
         def patch_h_hook(value, hook):
-            value[:, position_to_patch] = clean_run_cache[patch_place][:, position_to_patch]
+            value[:, position_to_patch] = clean_run_cache[h_patch_place][:, position_to_patch]
             return value
-
-        patch_hooks = [(f'hook_embed', add_noise), (patch_place, patch_h_hook)]
+        
+        def patch_att_hook(value, hook):
+            value[:, position_to_patch] = clean_run_cache[att_patch_place][:, position_to_patch]
+        
+        patch_hooks = [(f'hook_embed', add_noise), (h_patch_place, patch_h_hook)]
+        attn_patch_hooks = [(f'hook_embed', add_noise), (att_patch_place, patch_att_hook)]
 
         with model.hooks(fwd_hooks=patch_hooks), torch.no_grad():
-            # patched_logits, patched_run_cache = model.run_with_cache(tokens)
-            patched_logits = model(tokens, return_type='logits')
+            h_patched_logits = model(tokens, return_type='logits')
+        
+        with model.hooks(fwd_hooks=attn_patch_hooks), torch.no_grad():
+            att_patched_logits = model(tokens, return_type='logits')
+        
+        h_patch_prob = torch.softmax(h_patched_logits[0, -1], dim=-1)[target_token]
+        att_patch_prob = torch.softmax(att_patched_logits[0, -1], dim=-1)[target_token]
 
-        return torch.softmax(patched_logits[0, -1], dim=-1)[target_token]
+        return h_patch_prob, att_patch_prob
 
 
     n_layers = model.cfg.n_layers
@@ -82,7 +92,8 @@ def corrupt_and_patch():
     # Iterate through every layer and position
     for layer_to_patch in range(n_layers):
         for position_to_patch in range(n_positions):
-            result = analyze_patch(model, tokens, layer_to_patch, position_to_patch).to('cpu')
+            result = analyze_patch(model, tokens, layer_to_patch, position_to_patch)
+            result = tuple(r.to('cpu') for r in result) # ugly move to cpu.
             results.append((layer_to_patch, position_to_patch, result))
 
     print(f'Finished in {time.time() - t0:.2f} seconds')
@@ -90,62 +101,68 @@ def corrupt_and_patch():
     original_prob = torch.softmax(clean_logits[0, -1], dim=-1)[target_token].to('cpu')
     corrupted_prob = torch.softmax(corrupted_logits[0, -1], dim=-1)[target_token].to('cpu')
 
-    diff_matrix = np.zeros((n_positions, n_layers))
+    h_diff_matrix = np.zeros((n_positions, n_layers))
+    a_diff_matrix = np.zeros((n_positions, n_layers))
     for res in results:
-        layer_to_patch, position_to_patch, patched_prob = res
-        diff = np.abs(original_prob - patched_prob)
-        diff_matrix[position_to_patch, layer_to_patch] = diff
+        layer_to_patch, position_to_patch, (h, a) = res
+        h_diff = np.abs(original_prob - h)
+        a_diff = np.abs(original_prob - a)
+        h_diff_matrix[position_to_patch, layer_to_patch] = h_diff
+        a_diff_matrix[position_to_patch, layer_to_patch] = a_diff
     
-    return diff_matrix.T, original_prob, corrupted_prob
+    return original_prob, corrupted_prob, h_diff_matrix.T, a_diff_matrix.T
 
 
-
-"""
-# # Initialize writer object
-# writer = imageio.get_writer('difference_plot.gif', duration=500)
-
-# for i in range(5):
-#     diff_matrix, original_prob, corrupted_prob = corrupt_and_patch()
-#     # Plotting the matrix
-#     y_labels = [str(i) if i != s_token_len - 1 else str(i) + '*' for i in range(tokens.shape[1])]
-#     plt.yticks(range(tokens.shape[1]), y_labels)
-#     plt.imshow(diff_matrix, aspect='auto', cmap='viridis', vmin=0, vmax=np.abs(original_prob - corrupted_prob))
-#     plt.colorbar(label='Difference')
-#     plt.xlabel('Layer')
-#     plt.ylabel('Position')
-#     plt.title('Original - Patched')
-
-#     # Save plot to a temporary file and append to the GIF
-#     plt.savefig('temp_plot.png', dpi=300, bbox_inches='tight')
-#     writer.append_data(imageio.imread('temp_plot.png'))
-#     plt.close()
-
-# # Close the writer
-# writer.close()
-"""
-
-
-# run 10 times and average
-diff_matrices = []
+# run n times and average
+h_diffs = []
+a_diffs = []
 original_probs = []
 corrupted_probs = []
-for i in range(10):
-    diff_matrix, original_prob, corrupted_prob = corrupt_and_patch()
-    diff_matrices.append(diff_matrix)
+for i in range(1):
+    original_prob, corrupted_prob, h_diff, a_diff = corrupt_and_patch()
+    h_diffs.append(h_diff)
+    a_diffs.append(a_diff)
     original_probs.append(original_prob)
     corrupted_probs.append(corrupted_prob)
 
-diff_matrix = np.mean(diff_matrices, axis=0)
+# %%
+
+# Average the differences
+h_diff_matrix = np.mean(h_diffs, axis=0)
+a_diff_matrix = np.mean(a_diffs, axis=0)
 original_prob = np.mean(original_probs)
 corrupted_prob = np.mean(corrupted_probs)
 
+# Common settings for x-labels and color scale
 x_labels = [str(i) if i != s_token_len - 1 else str(i) + '*' for i in range(tokens.shape[1])]
-plt.xticks(range(tokens.shape[1]), x_labels)
-plt.imshow(diff_matrix, aspect='auto', cmap='viridis', vmin=0, vmax=np.abs(original_prob - corrupted_prob))
-plt.gca().invert_yaxis()
-plt.colorbar(label='Difference')
-plt.ylabel('Layer')
-plt.xlabel('Position')
-plt.title('Original - Patched')
+vmin_vmax = {'vmin': 0, 'vmax': np.abs(original_prob - corrupted_prob)}
+
+# Create a figure with side-by-side subplots
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+# Plot for h_diff
+ax1.set_xticks(range(tokens.shape[1]))
+ax1.set_xticklabels(x_labels)
+im1 = ax1.imshow(h_diff_matrix, aspect='auto', cmap='viridis', **vmin_vmax)
+ax1.invert_yaxis()
+fig.colorbar(im1, ax=ax1, label='Difference')
+ax1.set_ylabel('Layer')
+ax1.set_xlabel('Position')
+ax1.set_title('Original - H_Patched')
+
+# Plot for a_diff
+ax2.set_xticks(range(tokens.shape[1]))
+ax2.set_xticklabels(x_labels)
+im2 = ax2.imshow(a_diff_matrix, aspect='auto', cmap='viridis', **vmin_vmax)
+ax2.invert_yaxis()
+fig.colorbar(im2, ax=ax2, label='Difference')
+ax2.set_ylabel('Layer')
+ax2.set_xlabel('Position')
+ax2.set_title('Original - A_Patched')
+
+# Save the figure
+plt.tight_layout()
 plt.savefig('difference_plot.png', dpi=300, bbox_inches='tight')
 
+
+# %%
