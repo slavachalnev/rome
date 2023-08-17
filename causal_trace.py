@@ -2,6 +2,7 @@
 
 from matplotlib import pyplot as plt
 import numpy as np
+import imageio
 
 import time
 import torch
@@ -41,7 +42,7 @@ with torch.no_grad():
 
 
 def corrupt_and_patch():
-    noise_scale = 3 * get_embedding_variance(model)
+    noise_scale = 3 * torch.sqrt(get_embedding_variance(model))
 
     noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subject
     noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1) # pad for relation
@@ -95,7 +96,33 @@ def corrupt_and_patch():
         diff = np.abs(original_prob - patched_prob)
         diff_matrix[position_to_patch, layer_to_patch] = diff
     
-    return diff_matrix, original_prob, corrupted_prob
+    return diff_matrix.T, original_prob, corrupted_prob
+
+
+
+"""
+# # Initialize writer object
+# writer = imageio.get_writer('difference_plot.gif', duration=500)
+
+# for i in range(5):
+#     diff_matrix, original_prob, corrupted_prob = corrupt_and_patch()
+#     # Plotting the matrix
+#     y_labels = [str(i) if i != s_token_len - 1 else str(i) + '*' for i in range(tokens.shape[1])]
+#     plt.yticks(range(tokens.shape[1]), y_labels)
+#     plt.imshow(diff_matrix, aspect='auto', cmap='viridis', vmin=0, vmax=np.abs(original_prob - corrupted_prob))
+#     plt.colorbar(label='Difference')
+#     plt.xlabel('Layer')
+#     plt.ylabel('Position')
+#     plt.title('Original - Patched')
+
+#     # Save plot to a temporary file and append to the GIF
+#     plt.savefig('temp_plot.png', dpi=300, bbox_inches='tight')
+#     writer.append_data(imageio.imread('temp_plot.png'))
+#     plt.close()
+
+# # Close the writer
+# writer.close()
+"""
 
 
 # run 10 times and average
@@ -112,14 +139,13 @@ diff_matrix = np.mean(diff_matrices, axis=0)
 original_prob = np.mean(original_probs)
 corrupted_prob = np.mean(corrupted_probs)
 
-
-# Plotting the matrix
-y_labels = [str(i) if i != s_token_len - 1 else str(i) + '*' for i in range(tokens.shape[1])]
-plt.yticks(range(tokens.shape[1]), y_labels)
-plt.imshow(diff_matrix, aspect='auto', cmap='viridis', vmin=0, vmax=original_prob - corrupted_prob)
+x_labels = [str(i) if i != s_token_len - 1 else str(i) + '*' for i in range(tokens.shape[1])]
+plt.xticks(range(tokens.shape[1]), x_labels)
+plt.imshow(diff_matrix, aspect='auto', cmap='viridis', vmin=0, vmax=np.abs(original_prob - corrupted_prob))
+plt.gca().invert_yaxis()
 plt.colorbar(label='Difference')
-plt.xlabel('Layer')
-plt.ylabel('Position')
+plt.ylabel('Layer')
+plt.xlabel('Position')
 plt.title('Original - Patched')
 plt.savefig('difference_plot.png', dpi=300, bbox_inches='tight')
 
