@@ -34,6 +34,7 @@ print(prompt)
 
 tokens = tokenizer.encode(prompt, return_tensors='pt').to(device)
 target_token = tokenizer.encode(fact['o'])[0]
+s_token_len = len(tokenizer.encode(fact['s']))
 
 with torch.no_grad():
     clean_logits, clean_run_cache = model.run_with_cache(tokens)
@@ -42,7 +43,6 @@ with torch.no_grad():
 def corrupt_and_patch():
     noise_scale = 3 * get_embedding_variance(model)
 
-    s_token_len = len(tokenizer.encode(fact['s']))
     noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subject
     noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1) # pad for relation
     noise = noise.to(device)
@@ -114,6 +114,8 @@ corrupted_prob = np.mean(corrupted_probs)
 
 
 # Plotting the matrix
+y_labels = [str(i) if i != s_token_len - 1 else str(i) + '*' for i in range(tokens.shape[1])]
+plt.yticks(range(tokens.shape[1]), y_labels)
 plt.imshow(diff_matrix, aspect='auto', cmap='viridis', vmin=0, vmax=original_prob - corrupted_prob)
 plt.colorbar(label='Difference')
 plt.xlabel('Layer')
