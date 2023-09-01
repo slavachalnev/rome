@@ -7,6 +7,7 @@ import numpy as np
 import time
 import torch
 from transformer_lens import HookedTransformer
+from token_print import ColoredTokenizer
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -15,6 +16,7 @@ model = HookedTransformer.from_pretrained('gpt2-xl', device=device)
 model.eval()
 
 tokenizer = model.tokenizer
+ct = ColoredTokenizer(tokenizer)
 
 def get_embedding_variance(model):
     """Compute unbiased variance of the embedding layer."""
@@ -41,20 +43,24 @@ with torch.no_grad():
     clean_logits, clean_run_cache = model.run_with_cache(tokens)
 
 
-def corrupt_and_patch():
-    noise_scale = 3 * torch.sqrt(get_embedding_variance(model))
+def corrupt_and_patch(tokens, corrupted_tokens=None):
+    if corrupted_tokens is not None:
+        tokens = corrupted_tokens
 
+    noise_scale = 3 * torch.sqrt(get_embedding_variance(model))
     noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subject
     noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1) # pad for relation
     noise = noise.to(device)
     noise = noise * noise_scale
 
     def add_noise(value, hook):
-        return value + noise
+        if corrupted_tokens is None:
+            return value + noise
+        else:  # do nothing if corrupted_tokens is provided
+            return value
 
     noise_hooks = [(f'hook_embed', add_noise)]
     with model.hooks(fwd_hooks=noise_hooks), torch.no_grad():
-        # corrupted_logits, corrupted_run_cache = model.run_with_cache(tokens)
         corrupted_logits = model(tokens, return_type='logits')
 
     def analyze_patch(model, tokens, layer_to_patch, position_to_patch):
@@ -126,6 +132,16 @@ def corrupt_and_patch():
     
     return original_prob, corrupted_prob, h_diff_matrix.T, a_diff_matrix.T, m_diff_matrix.T
 
+# %%
+
+ct(tokens)
+print('tokens device:', tokens.device)
+corrupted_tokens = tokenizer.encode("The Colosseum is located in", return_tensors='pt').to(device)
+ct(corrupted_tokens)
+
+
+# %%
+
 
 # run n times and average
 h_diffs = []
@@ -134,7 +150,10 @@ m_diffs = []
 original_probs = []
 corrupted_probs = []
 for i in range(1):
-    original_prob, corrupted_prob, h_diff, a_diff, m_diff = corrupt_and_patch()
+    original_prob, corrupted_prob, h_diff, a_diff, m_diff = corrupt_and_patch(
+        tokens=tokens,
+        # corrupted_tokens=corrupted_tokens,
+    )
     h_diffs.append(h_diff)
     a_diffs.append(a_diff)
     m_diffs.append(m_diff)
