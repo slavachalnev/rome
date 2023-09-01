@@ -152,7 +152,7 @@ corrupted_probs = []
 for i in range(1):
     original_prob, corrupted_prob, h_diff, a_diff, m_diff = corrupt_and_patch(
         tokens=tokens,
-        # corrupted_tokens=corrupted_tokens,
+        corrupted_tokens=corrupted_tokens,
     )
     h_diffs.append(h_diff)
     a_diffs.append(a_diff)
@@ -179,7 +179,8 @@ fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(12, 5))
 # Plot for h_diff
 ax1.set_xticks(range(tokens.shape[1]))
 ax1.set_xticklabels(x_labels)
-im1 = ax1.imshow(h_diff_matrix, aspect='auto', cmap='viridis', **vmin_vmax)
+# im1 = ax1.imshow(h_diff_matrix, aspect='auto', cmap='viridis', **vmin_vmax)
+im1 = ax1.imshow(h_diff_matrix, aspect='auto', cmap='viridis')
 ax1.invert_yaxis()
 fig.colorbar(im1, ax=ax1, label='Difference')
 ax1.set_ylabel('Layer')
@@ -189,7 +190,8 @@ ax1.set_title('Original - H_Patched')
 # Plot for a_diff
 ax2.set_xticks(range(tokens.shape[1]))
 ax2.set_xticklabels(x_labels)
-im2 = ax2.imshow(a_diff_matrix, aspect='auto', cmap='viridis', **vmin_vmax)
+# im2 = ax2.imshow(a_diff_matrix, aspect='auto', cmap='viridis', **vmin_vmax)
+im2 = ax2.imshow(a_diff_matrix, aspect='auto', cmap='viridis')
 ax2.invert_yaxis()
 fig.colorbar(im2, ax=ax2, label='Difference')
 ax2.set_ylabel('Layer')
@@ -199,7 +201,8 @@ ax2.set_title('Original - A_Patched')
 # Plot for m_diff
 ax3.set_xticks(range(tokens.shape[1]))
 ax3.set_xticklabels(x_labels)
-im3 = ax3.imshow(m_diff_matrix, aspect='auto', cmap='viridis', **vmin_vmax)
+# im3 = ax3.imshow(m_diff_matrix, aspect='auto', cmap='viridis', **vmin_vmax)
+im3 = ax3.imshow(m_diff_matrix, aspect='auto', cmap='viridis')
 ax3.invert_yaxis()
 fig.colorbar(im3, ax=ax3, label='Difference')
 ax3.set_ylabel('Layer')
