@@ -8,6 +8,7 @@ import time
 import torch
 from transformer_lens import HookedTransformer
 from token_print import ColoredTokenizer
+from utils import get_embedding_variance
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -17,14 +18,6 @@ model.eval()
 
 tokenizer = model.tokenizer
 ct = ColoredTokenizer(tokenizer)
-
-def get_embedding_variance(model):
-    """Compute unbiased variance of the embedding layer."""
-    embedding = model.W_E
-    embedding_mean = embedding.mean(dim=0)
-    embedding_variance = ((embedding - embedding_mean) ** 2).mean(dim=0)
-    return embedding_variance
-
 
 fact = {
     's': 'The Eiffel Tower',
