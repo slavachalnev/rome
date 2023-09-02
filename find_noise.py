@@ -1,6 +1,7 @@
 from typing import List
 
 import torch
+import torch.nn.functional as F
 
 from transformer_lens import HookedTransformer
 from token_print import ColoredTokenizer
@@ -13,7 +14,7 @@ def find_noise(
         noise_idxs: List,
         noise_sd: float,
     ):
-    """Find noise which maximizes the logits of tokens[:max(noise_idxs) + 1]
+    """Find noise which minimizes loss of tokens[:max(noise_idxs) + 1]
     while keeping the standard deviation of the noise equal to noise_sd.
     """
 
@@ -26,12 +27,19 @@ def find_noise(
     noise = noise.to(model.cfg.device)
     noise.requires_grad = True
 
-    print("tokens is ", tokens)
-    print("noise shape is ", noise.shape)
-    print(noise.sum(dim=1))
-
     def add_noise(value, hook):
         return value + noise
+
+    noise_hooks = [(f'hook_embed', add_noise)]
+    with model.hooks(fwd_hooks=noise_hooks):
+        logits = model(tokens, return_type='logits')
+    
+    # loss averaged over all tokens after noise_idxs
+    targets = tokens[0, max(noise_idxs) + 1:].to(model.cfg.device)
+    ct(targets)
+
+    loss = F.cross_entropy(logits[0, max(noise_idxs):-1], target=targets)
+    print(loss)
     
 
 
