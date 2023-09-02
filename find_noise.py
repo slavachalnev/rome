@@ -14,7 +14,7 @@ def find_noise(
         tokens: torch.Tensor,
         noise_idxs: List,
         noise_sd: float,
-        steps: int = 10,
+        steps: int = 20,
     ):
     """Find noise which minimizes loss of tokens[:max(noise_idxs) + 1]
     while keeping the standard deviation of the noise equal to noise_sd.
@@ -30,6 +30,7 @@ def find_noise(
     mask[:len(noise_idxs), :] = 1
     mask = mask.to(model.cfg.device)
 
+    noise_sd = noise_sd.to(model.cfg.device)
     noise = noise.to(model.cfg.device)
     noise.requires_grad = True
 
@@ -48,9 +49,15 @@ def find_noise(
         targets = tokens[0, max(noise_idxs) + 1:].to(model.cfg.device)
         loss = F.cross_entropy(logits[0, max(noise_idxs):-1], target=targets)
 
+        noise_std_term = ((noise[:len(noise_idxs)].std() - noise_sd) ** 2).mean()
+        lamb = 100
+        noise_std_term = lamb * noise_std_term
+        print(f'loss: {loss.item():.2f}, noise_std_term: {noise_std_term.item():.2f}')
+
+        loss = loss + noise_std_term
+
         loss.backward()
         noise.grad *= mask
-        print(loss.item())
         optimizer.step()
 
 
