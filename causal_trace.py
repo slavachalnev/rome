@@ -43,8 +43,8 @@ def corrupt_and_patch(tokens, corrupted_tokens=None):
     noise_scale = 3 * torch.sqrt(get_embedding_variance(model))
     noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subject
     noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1) # pad for relation
-    noise = noise.to(device)
     noise = noise * noise_scale
+    noise = noise.to(device)
 
     def add_noise(value, hook):
         if corrupted_tokens is None:
