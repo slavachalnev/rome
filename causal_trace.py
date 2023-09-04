@@ -220,7 +220,7 @@ compute_and_plot(corrupted_tokens=corrupted_tokens, optimize_noise=False, noise_
 # %%
 compute_and_plot(corrupted_tokens=None, optimize_noise=False, noise_mult=5, trials=10)
 # %%
-compute_and_plot(corrupted_tokens=None, optimize_noise=True, noise_mult=5, trials=10)
+compute_and_plot(corrupted_tokens=None, optimize_noise=True, noise_mult=10, trials=10)
 # %%
 
 
