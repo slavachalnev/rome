@@ -73,7 +73,7 @@ def corrupt_and_patch(tokens, corrupted_tokens=None, optimize_noise=False, noise
     # Iterate through every layer and position
     for layer_to_patch in range(n_layers):
         for position_to_patch in range(n_positions):
-            result = analyze_patch(model, tokens, layer_to_patch, position_to_patch)
+            result = analyze_patch(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise)
             result = tuple(r.to('cpu') for r in result) # ugly move to cpu.
             results.append((layer_to_patch, position_to_patch, result))
 
