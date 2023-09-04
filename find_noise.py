@@ -14,7 +14,7 @@ def find_noise(
         tokens: torch.Tensor,
         noise_idxs: List,
         noise_sd: float,
-        steps: int = 20,
+        steps: int = 50,
     ):
     """Find noise which minimizes loss of tokens[:max(noise_idxs) + 1]
     while keeping the standard deviation of the noise equal to noise_sd.
@@ -40,7 +40,7 @@ def find_noise(
         return value + noise
     noise_hooks = [(f'hook_embed', add_noise)]
 
-    for _ in range(steps):
+    for step in range(steps):
         optimizer.zero_grad()
         with model.hooks(fwd_hooks=noise_hooks):
             logits = model(tokens, return_type='logits')
@@ -52,13 +52,17 @@ def find_noise(
         noise_std_term = ((noise[:len(noise_idxs)].std() - noise_sd) ** 2).mean()
         lamb = 100
         noise_std_term = lamb * noise_std_term
-        print(f'loss: {loss.item():.2f}, noise_std_term: {noise_std_term.item():.2f}')
+
+        if step % 10 == 0:
+            print(f'step: {step}, loss: {loss.item():.2f}, noise_std_term: {noise_std_term.item():.2f}')
 
         loss = loss + noise_std_term
 
         loss.backward()
         noise.grad *= mask
         optimizer.step()
+    
+    return noise.detach()
 
 
 if __name__ == '__main__':
@@ -71,6 +75,21 @@ if __name__ == '__main__':
 
     noise_idxs = [0, 1, 2, 3, 4]
     noise_sd = 3 * torch.sqrt(get_embedding_variance(model))
+    noise_sd = 2*noise_sd # temporary experiment
 
-    find_noise(model, tokens, noise_idxs, noise_sd)
-    
+    noise = find_noise(model, tokens, noise_idxs, noise_sd, steps=50)
+
+    embedded = model.embed(tokens)
+    noisy = embedded + noise
+
+    # find the tokens which are most similar to noisy
+    decoded_tokens = []
+    for v in noisy[0]:
+        similarities = F.cosine_similarity(v.unsqueeze(0), model.W_E, dim=-1)
+        best = similarities.argmax()
+        decoded_tokens.append(best.item())
+    ct(decoded_tokens)
+
+    pred = model.generate(torch.tensor(decoded_tokens).unsqueeze(0))
+    ct(pred)
+
