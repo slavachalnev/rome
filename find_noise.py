@@ -23,6 +23,8 @@ def find_noise(
     # we only add noise to noise_idxs
     noise = torch.randn((len(noise_idxs), model.cfg.d_model))
     noise = noise * noise_sd
+    original_norm = noise.norm(dim=-1)
+    original_norm = original_norm.to(model.cfg.device)
     remaining_zeros = torch.zeros((tokens.shape[-1] - len(noise_idxs), model.cfg.d_model))
     noise = torch.cat([noise, remaining_zeros], dim=0)
 
@@ -49,14 +51,14 @@ def find_noise(
         targets = tokens[0, max(noise_idxs) + 1:].to(model.cfg.device)
         loss = F.cross_entropy(logits[0, max(noise_idxs):-1], target=targets)
 
-        noise_std_term = ((noise[:len(noise_idxs)].std() - noise_sd) ** 2).mean()
-        lamb = 100
-        noise_std_term = lamb * noise_std_term
+        noise_norm_term = ((noise[:len(noise_idxs)].norm(dim=-1) - original_norm) ** 2).mean()
+        lamb = 10
+        noise_norm_term = lamb * noise_norm_term
 
         # if step % 10 == 0:
-        #     print(f'step: {step}, loss: {loss.item():.2f}, noise_std_term: {noise_std_term.item():.2f}')
+        #     print(f'step: {step}, loss: {loss.item():.2f}, noise_norm_term: {noise_norm_term.item():.2f}')
 
-        loss = loss + noise_std_term
+        loss = loss + noise_norm_term
 
         loss.backward()
         noise.grad *= mask
@@ -93,4 +95,3 @@ if __name__ == '__main__':
     # ct(noisy_tokens)
     pred = model.generate(torch.tensor(noisy_tokens).unsqueeze(0))
     ct(pred)
-
