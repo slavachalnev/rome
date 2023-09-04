@@ -14,7 +14,7 @@ def find_noise(
         tokens: torch.Tensor,
         noise_idxs: List,
         noise_sd: float,
-        steps: int = 50,
+        steps: int = 100,
     ):
     """Find noise which minimizes loss of tokens[:max(noise_idxs) + 1]
     while keeping the standard deviation of the noise equal to noise_sd.
@@ -53,8 +53,8 @@ def find_noise(
         lamb = 100
         noise_std_term = lamb * noise_std_term
 
-        if step % 10 == 0:
-            print(f'step: {step}, loss: {loss.item():.2f}, noise_std_term: {noise_std_term.item():.2f}')
+        # if step % 10 == 0:
+        #     print(f'step: {step}, loss: {loss.item():.2f}, noise_std_term: {noise_std_term.item():.2f}')
 
         loss = loss + noise_std_term
 
@@ -76,7 +76,8 @@ def find_noise(
 
 
 if __name__ == '__main__':
-    model = HookedTransformer.from_pretrained('gpt2-small')
+    # model = HookedTransformer.from_pretrained('gpt2-small')
+    model = HookedTransformer.from_pretrained('gpt2-xl')
     ct = ColoredTokenizer(model.tokenizer)
 
     sent = "The Eiffel Tower is located in"
@@ -84,12 +85,12 @@ if __name__ == '__main__':
     ct(tokens)
 
     noise_idxs = [0, 1, 2, 3, 4]
-    noise_sd = 3 * torch.sqrt(get_embedding_variance(model))
-    noise_sd = 2*noise_sd # temporary experiment
+    noise_mult = 10
+    noise_sd = noise_mult * torch.sqrt(get_embedding_variance(model))
 
-    noise, noisy_tokens = find_noise(model, tokens, noise_idxs, noise_sd, steps=50)
+    noise, noisy_tokens = find_noise(model, tokens, noise_idxs, noise_sd)
 
-    ct(noisy_tokens)
+    # ct(noisy_tokens)
     pred = model.generate(torch.tensor(noisy_tokens).unsqueeze(0))
     ct(pred)
 
