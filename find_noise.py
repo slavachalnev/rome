@@ -62,7 +62,17 @@ def find_noise(
         noise.grad *= mask
         optimizer.step()
     
-    return noise.detach()
+    noise = noise.detach()
+
+    # find the tokens which are most similar to noisy
+    noisy = model.embed(tokens) + noise
+    noisy_tokens = []
+    for v in noisy[0]:
+        similarities = F.cosine_similarity(v.unsqueeze(0), model.W_E, dim=-1)
+        best = similarities.argmax()
+        noisy_tokens.append(best.item())
+    
+    return noise, noisy_tokens
 
 
 if __name__ == '__main__':
@@ -77,19 +87,9 @@ if __name__ == '__main__':
     noise_sd = 3 * torch.sqrt(get_embedding_variance(model))
     noise_sd = 2*noise_sd # temporary experiment
 
-    noise = find_noise(model, tokens, noise_idxs, noise_sd, steps=50)
+    noise, noisy_tokens = find_noise(model, tokens, noise_idxs, noise_sd, steps=50)
 
-    embedded = model.embed(tokens)
-    noisy = embedded + noise
-
-    # find the tokens which are most similar to noisy
-    decoded_tokens = []
-    for v in noisy[0]:
-        similarities = F.cosine_similarity(v.unsqueeze(0), model.W_E, dim=-1)
-        best = similarities.argmax()
-        decoded_tokens.append(best.item())
-    ct(decoded_tokens)
-
-    pred = model.generate(torch.tensor(decoded_tokens).unsqueeze(0))
+    ct(noisy_tokens)
+    pred = model.generate(torch.tensor(noisy_tokens).unsqueeze(0))
     ct(pred)
 
