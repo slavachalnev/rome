@@ -47,10 +47,14 @@ def patch_mlp_pos(model, tokens, position_to_patch, clean_run_cache, target_toke
     cached_mlp_outs = torch.stack(cached_mlp_outs, dim=0)
 
     def patch_mlp_hook(value, hook):
-        value[:, position_to_patch] = cached_mlp_outs[:, position_to_patch]
+        layer = int(hook.name.split('.')[1])
+        value[:, position_to_patch] = cached_mlp_outs[layer, :, position_to_patch]
         return value
     
-    mlp_patch_hooks = [(f'hook_embed', add_noise_fn), (mlp_patch_places, patch_mlp_hook)]
+    mlp_patch_hooks = [(f'hook_embed', add_noise_fn)]
+    for layer, place in enumerate(mlp_patch_places):
+        mlp_patch_hooks.append((place, patch_mlp_hook))
+
     with model.hooks(fwd_hooks=mlp_patch_hooks), torch.no_grad():
         mlp_patched_logits = model(tokens, return_type='logits')
 
@@ -58,4 +62,33 @@ def patch_mlp_pos(model, tokens, position_to_patch, clean_run_cache, target_toke
     return mlp_patch_prob
 
 
+noise_sd = 3 * torch.sqrt(get_embedding_variance(model))
+noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subject
+noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1)
+noise = noise * noise_sd
+noise = noise.to(device)
 
+def add_noise(value, hook):
+    return value + noise
+
+# corrupted run
+noise_hooks = [(f'hook_embed', add_noise)]
+with model.hooks(fwd_hooks=noise_hooks), torch.no_grad():
+    corrupted_logits = model(tokens, return_type='logits')
+
+n_layers = model.cfg.n_layers
+n_positions = tokens.shape[-1]
+
+clean_prob = torch.softmax(clean_logits[0, -1], dim=-1)[target_token]
+corrupted_prob = torch.softmax(corrupted_logits[0, -1], dim=-1)[target_token]
+
+
+patches = []
+for position in range(n_positions):
+    patch_prob = patch_mlp_pos(model, tokens, position, clean_run_cache, target_token, add_noise)
+    print(f'position {position}: {patch_prob}')
+    patches.append(patch_prob)
+
+patches = torch.stack(patches, dim=0)
+diffs = torch.abs(patches - clean_prob)
+print(diffs)
