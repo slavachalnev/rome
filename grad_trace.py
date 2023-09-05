@@ -1,3 +1,4 @@
+# %%
 from matplotlib import pyplot as plt
 import numpy as np
 
@@ -85,6 +86,8 @@ noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subjec
 noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1)
 noise = noise * noise_sd
 noise = noise.to(device)
+# noise, noisy_tokens = find_noise(model, tokens, list(range(s_token_len)), noise_sd)
+# ct(noisy_tokens)
 
 def add_noise(value, hook):
     return value + noise
@@ -108,7 +111,6 @@ corrupted_mlp_outs = [corrupted_run_cache[f'blocks.{layer}.mlp.hook_post'] for l
 corrupted_mlp_outs = [cached[:, pos_to_patch] for cached in corrupted_mlp_outs]
 
 # compute importance of activations by calculating (clean - corrupted) * grad
-
 importance = []
 for clean, corrupted, grad in zip(clean_mlp_outs, corrupted_mlp_outs, grads):
     importance.append((clean - corrupted) * grad)
@@ -116,14 +118,8 @@ for clean, corrupted, grad in zip(clean_mlp_outs, corrupted_mlp_outs, grads):
 
 # find top k activations with highest importance
 k = 1000
-
-# Flatten and concatenate all importance tensors
 flat_importance = torch.cat([imp.flatten() for imp in importance])
-
-# Sort the flattened tensor in descending order and pick top k indices
 top_k_indices = torch.topk(flat_importance, k).indices
-
-# To find out which layer and position each index corresponds to, you can use divmod.
 layer_positions = [(i // model.cfg.d_mlp, i % model.cfg.d_mlp) for i in top_k_indices]
 
 # print(f'Top {k} most important activations:')
@@ -164,9 +160,23 @@ for layer in range(model.cfg.n_layers):
     important_tensors.append(torch.tensor(important[layer]))
 
 precision_patched_prob = patch_important(model, tokens, pos_to_patch, important_tensors, clean_run_cache, target_token, add_noise)
-print(f'Clean prob: {clean_prob}')
-print(f'Patched prob: {mlp_patch_prob}')
+print(f'Clean prob:             {clean_prob}')
+print(f'Patched prob:           {mlp_patch_prob}')
 print(f'Precision patched prob: {precision_patched_prob}')
-print(f'Corrupted prob: {corrupted_prob}')
+print(f'Corrupted prob:         {corrupted_prob}')
 
 
+# %%
+summed_importance = [0.0 for _ in range(model.cfg.n_layers)]
+for layer, position in layer_positions:
+    summed_importance[layer] += importance[layer][0][position].item()
+
+plt.figure(figsize=(10, 6))
+plt.bar(range(model.cfg.n_layers), summed_importance)
+plt.xlabel("Layer")
+plt.ylabel("Sum of Top k Importance")
+plt.title("Layer vs Sum of Importance of Top k Neurons")
+plt.show()
+
+
+# %%
