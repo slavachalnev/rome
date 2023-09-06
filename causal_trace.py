@@ -37,7 +37,7 @@ with torch.no_grad():
     clean_logits, clean_run_cache = model.run_with_cache(tokens)
 
 
-def corrupt_and_patch(tokens, corrupted_tokens=None, optimize_noise=False, noise_mult=10):
+def corrupt_and_patch(tokens, corrupted_tokens=None, optimize_noise=False, noise_mult=3):
     # assert not (corrupted_tokens is not None and optimize_noise), 'Cannot optimize noise if corrupted_tokens is provided'
 
     noise_sd = noise_mult * torch.sqrt(get_embedding_variance(model))
@@ -74,7 +74,7 @@ def corrupt_and_patch(tokens, corrupted_tokens=None, optimize_noise=False, noise
     # Iterate through every layer and position
     for layer_to_patch in range(n_layers):
         for position_to_patch in range(n_positions):
-            result = analyze_patch(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise)
+            result = analyze_patch(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise, width=5)
             result = tuple(r.to('cpu') for r in result) # ugly move to cpu.
             results.append((layer_to_patch, position_to_patch, result))
 
@@ -184,7 +184,7 @@ compute_and_plot(corrupted_tokens=corrupted_tokens, optimize_noise=False, noise_
 # %%
 compute_and_plot(corrupted_tokens=None, optimize_noise=False, noise_mult=5, trials=10)
 # %%
-compute_and_plot(corrupted_tokens=None, optimize_noise=True, noise_mult=10, trials=10)
+compute_and_plot(corrupted_tokens=None, optimize_noise=True, noise_mult=3, trials=1)
 
 
 
