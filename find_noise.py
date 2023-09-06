@@ -14,7 +14,7 @@ def find_noise(
         tokens: torch.Tensor,
         noise_idxs: List,
         noise_sd: float,
-        steps: int = 100,
+        steps: int = 50,
     ):
     """Find noise which minimizes loss of tokens[:max(noise_idxs) + 1]
     while keeping the standard deviation of the noise equal to noise_sd.
@@ -39,7 +39,7 @@ def find_noise(
     optimizer = Adam([noise], lr=0.1)
 
     def add_noise(value, hook):
-        return value + noise
+        return noise
     noise_hooks = [(f'hook_embed', add_noise)]
 
     for step in range(steps):
@@ -52,8 +52,6 @@ def find_noise(
         loss = F.cross_entropy(logits[0, max(noise_idxs):-1], target=targets)
 
         noise_norm_term = ((noise[:len(noise_idxs)].norm(dim=-1) - original_norm) ** 2).mean()
-        lamb = 10
-        noise_norm_term = lamb * noise_norm_term
 
         # if step % 10 == 0:
         #     print(f'step: {step}, loss: {loss.item():.2f}, noise_norm_term: {noise_norm_term.item():.2f}')
@@ -67,14 +65,17 @@ def find_noise(
     noise = noise.detach()
 
     # find the tokens which are most similar to noisy
-    noisy = model.embed(tokens) + noise
+
+    mask = 1 - mask
+    noisy_embeddings = model.embed(tokens)*mask + noise
+
     noisy_tokens = []
-    for v in noisy[0]:
+    for v in noisy_embeddings[0]:
         similarities = F.cosine_similarity(v.unsqueeze(0), model.W_E, dim=-1)
         best = similarities.argmax()
         noisy_tokens.append(best.item())
     
-    return noise, noisy_tokens
+    return noise, noisy_tokens, noisy_embeddings
 
 
 if __name__ == '__main__':
@@ -87,10 +88,10 @@ if __name__ == '__main__':
     ct(tokens)
 
     noise_idxs = [0, 1, 2, 3, 4]
-    noise_mult = 10
+    noise_mult = 1
     noise_sd = noise_mult * torch.sqrt(get_embedding_variance(model))
 
-    noise, noisy_tokens = find_noise(model, tokens, noise_idxs, noise_sd)
+    noise, noisy_tokens, noisy_embeddings = find_noise(model, tokens, noise_idxs, noise_sd)
 
     # ct(noisy_tokens)
     pred = model.generate(torch.tensor(noisy_tokens).unsqueeze(0))

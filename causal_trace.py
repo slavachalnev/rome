@@ -38,21 +38,22 @@ with torch.no_grad():
 
 
 def corrupt_and_patch(tokens, corrupted_tokens=None, optimize_noise=False, noise_mult=10):
-    assert not (corrupted_tokens is not None and optimize_noise), 'Cannot optimize noise if corrupted_tokens is provided'
-
-    if corrupted_tokens is not None:
-        tokens = corrupted_tokens
+    # assert not (corrupted_tokens is not None and optimize_noise), 'Cannot optimize noise if corrupted_tokens is provided'
 
     noise_sd = noise_mult * torch.sqrt(get_embedding_variance(model))
 
     if optimize_noise:
-        noise, noisy_tokens = find_noise(model, tokens, list(range(s_token_len)), noise_sd)
+        noise, noisy_tokens, noisy_emb = find_noise(model, tokens, list(range(s_token_len)), noise_sd)
+        corrupted_tokens = torch.tensor(noisy_tokens).unsqueeze(0).to(device)
         ct(noisy_tokens)
     else:
         noise = torch.randn((1, s_token_len, model.cfg.d_model)) # only noise the subject
         noise = torch.cat([noise, torch.zeros((1, tokens.shape[-1] - s_token_len, model.cfg.d_model))], dim=1)
         noise = noise * noise_sd
         noise = noise.to(device)
+
+    if corrupted_tokens is not None:
+        tokens = corrupted_tokens
 
     def add_noise(value, hook):
         if corrupted_tokens is None:
@@ -184,6 +185,7 @@ compute_and_plot(corrupted_tokens=corrupted_tokens, optimize_noise=False, noise_
 compute_and_plot(corrupted_tokens=None, optimize_noise=False, noise_mult=5, trials=10)
 # %%
 compute_and_plot(corrupted_tokens=None, optimize_noise=True, noise_mult=10, trials=10)
+
+
+
 # %%
-
-

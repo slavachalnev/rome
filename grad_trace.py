@@ -7,7 +7,6 @@ import torch
 from transformer_lens import HookedTransformer
 from token_print import ColoredTokenizer
 from utils import get_embedding_variance
-from find_noise import find_noise
 
 # we are given:
 # 1. position to patch
