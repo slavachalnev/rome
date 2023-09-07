@@ -26,14 +26,19 @@ def analyze_patch_h(model, tokens, layer_to_patch, position_to_patch, clean_run_
     return h_patch_prob
 
 
-def analyze_patch_att(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise_fn):
-    att_patch_place = f'blocks.{layer_to_patch}.hook_attn_out'
-
-    def patch_att_hook(value, hook):
-        value[:, position_to_patch] = clean_run_cache[att_patch_place][:, position_to_patch]
-        return value
+def analyze_patch_att(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise_fn, width=0):
+    def get_hook(layer):
+        att_patch_place = f'blocks.{layer}.hook_attn_out'
+        def patch_att_hook(value, hook):
+            value[:, position_to_patch] = clean_run_cache[att_patch_place][:, position_to_patch]
+            return value
+        return att_patch_place, patch_att_hook
     
-    attn_patch_hooks = [(f'hook_embed', add_noise_fn), (att_patch_place, patch_att_hook)]
+    attn_patch_hooks = [(f'hook_embed', add_noise_fn)]
+    min_layer = max(0, layer_to_patch - width)
+    max_layer = min(model.cfg.n_layers, layer_to_patch + width + 1)
+    for layer in range(min_layer, max_layer):
+        attn_patch_hooks.append(get_hook(layer))
 
     with model.hooks(fwd_hooks=attn_patch_hooks), torch.no_grad():
         att_patched_logits = model(tokens, return_type='logits')
@@ -69,6 +74,6 @@ def analyze_patch_mlp(model, tokens, layer_to_patch, position_to_patch, clean_ru
 
 def analyze_patch(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise_fn, width=0):
     h_patch_prob = analyze_patch_h(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise_fn)
-    att_patch_prob = analyze_patch_att(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise_fn)
+    att_patch_prob = analyze_patch_att(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise_fn, width=width)
     mlp_patch_prob = analyze_patch_mlp(model, tokens, layer_to_patch, position_to_patch, clean_run_cache, target_token, add_noise_fn, width=width)
     return h_patch_prob, att_patch_prob, mlp_patch_prob

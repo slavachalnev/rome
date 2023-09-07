@@ -180,11 +180,11 @@ print('tokens device:', tokens.device)
 corrupted_tokens = tokenizer.encode("The Colosseum is located in", return_tensors='pt').to(device)
 ct(corrupted_tokens)
 
-compute_and_plot(corrupted_tokens=corrupted_tokens, optimize_noise=False, noise_mult=5, trials=1)
+compute_and_plot(corrupted_tokens=corrupted_tokens, optimize_noise=False, noise_mult=3, trials=1)
 # %%
-compute_and_plot(corrupted_tokens=None, optimize_noise=False, noise_mult=5, trials=10)
+compute_and_plot(corrupted_tokens=None, optimize_noise=False, noise_mult=3, trials=5)
 # %%
-compute_and_plot(corrupted_tokens=None, optimize_noise=True, noise_mult=3, trials=1)
+compute_and_plot(corrupted_tokens=None, optimize_noise=True, noise_mult=3, trials=5)
 
 
 
